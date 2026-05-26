@@ -1,36 +1,57 @@
 # ============================================================
 # data_fetcher.py
-# Fetch EUR/USD candles from OANDA
+# OANDA Data Fetcher + Kill Zone + Balance + Formatting
 # ============================================================
 
 import os
 import requests
 from dotenv import load_dotenv
+from datetime import datetime, timezone
 
-# Load .env locally
 load_dotenv()
 
-# -------------------------
-# Config
-# -------------------------
+# ============================================================
+# Environment Variables
+# ============================================================
 
 OANDA_API_KEY = os.getenv("OANDA_API_KEY")
+ACCOUNT_ID = os.getenv("OANDA_ACCOUNT_ID")
 
 BASE_URL = "https://api-fxpractice.oanda.com/v3"
-INSTRUMENT = "EUR_USD"
-GRANULARITY = "M15"
-COUNT = 50
 
+
+# ============================================================
+# Kill Zones
+# ============================================================
+
+def in_kill_zone():
+
+    now = datetime.now(timezone.utc)
+    hour = now.hour
+
+    # London Kill Zone
+    if 7 <= hour < 10:
+        return True, "London"
+
+    # New York Kill Zone
+    elif 12 <= hour < 15:
+        return True, "New York"
+
+    return False, None
+
+
+# ============================================================
+# Fetch EUR/USD candles
+# ============================================================
 
 def get_candles():
 
     if not OANDA_API_KEY:
         raise Exception(
-            "❌ OANDA_API_KEY missing. "
-            "Add it in Railway Variables or .env"
+            "❌ Missing OANDA_API_KEY"
         )
 
-    url = f"{BASE_URL}/instruments/{INSTRUMENT}/candles"
+    url = f"{BASE_URL}/instruments/EUR_USD/candles"
 
     headers = {
         "Authorization": f"Bearer {OANDA_API_KEY}",
@@ -38,76 +59,124 @@ def get_candles():
     }
 
     params = {
-        "count": COUNT,
-        "granularity": GRANULARITY,
+        "count": 50,
+        "granularity": "M15",
         "price": "M"
     }
 
-    try:
+    response = requests.get(
+        url,
+        headers=headers,
+        params=params,
+        timeout=15
+    )
 
-        response = requests.get(
-            url,
-            headers=headers,
-            params=params,
-            timeout=15
+    print("Status:", response.status_code)
+
+    response.raise_for_status()
+
+    data = response.json()
+
+    candles = data.get("candles", [])
+
+    return candles
+
+
+# ============================================================
+# Get account balance
+# ============================================================
+
+def get_account_balance():
+
+    if not ACCOUNT_ID:
+        raise Exception(
+            "❌ Missing OANDA_ACCOUNT_ID"
         )
 
-        print("Status:", response.status_code)
+    url = f"{BASE_URL}/accounts/{ACCOUNT_ID}"
 
-        response.raise_for_status()
+    headers = {
+        "Authorization": f"Bearer {OANDA_API_KEY}"
+    }
 
-        data = response.json()
+    response = requests.get(
+        url,
+        headers=headers,
+        timeout=10
+    )
 
-        candles = data.get("candles", [])
+    response.raise_for_status()
 
-        if not candles:
-            print("⚠️ No candles returned")
+    data = response.json()
 
-        return candles
+    balance = float(
+        data["account"]["balance"]
+    )
 
-
-    except requests.exceptions.HTTPError:
-
-        if response.status_code == 401:
-
-            print("""
-❌ OANDA Authentication Failed
-
-Possible reasons:
-1. Wrong API key
-2. Missing Railway variable
-3. Practice token used with live endpoint
-4. Token expired
-
-Check:
-
-Railway → Variables
-
-OANDA_API_KEY=YOUR_TOKEN
-            """)
-
-        raise
+    return balance
 
 
-    except requests.exceptions.Timeout:
-        print("❌ Request timeout")
-        raise
+# ============================================================
+# Format candles for Claude / AI analysis
+# ============================================================
+
+def format_candles_for_claude(candles):
+
+    formatted = []
+
+    for candle in candles:
+
+        formatted.append({
+
+            "time":
+            candle["time"],
+
+            "open":
+            float(candle["mid"]["o"]),
+
+            "high":
+            float(candle["mid"]["h"]),
+
+            "low":
+            float(candle["mid"]["l"]),
+
+            "close":
+            float(candle["mid"]["c"]),
+
+            "volume":
+            candle["volume"]
+
+        })
+
+    return formatted
 
 
-    except Exception as e:
-        print("❌ Error:", e)
-        raise
-
-
-# -------------------------
+# ============================================================
 # Test
-# -------------------------
+# ============================================================
 
 if __name__ == "__main__":
 
+    print("Testing...\n")
+
+    in_kz, kz_name = in_kill_zone()
+
+    print("Kill Zone:", in_kz)
+    print("Session:", kz_name)
+
+    balance = get_account_balance()
+
+    print("Balance:", balance)
+
     candles = get_candles()
 
-    print("Fetched:", len(candles))
+    print("Candles:", len(candles))
 
-    if candles:
-        print(candles[-1])
+    formatted = format_candles_for_claude(
+        candles
+    )
+
+    print(
+        "Latest candle:",
+        formatted[-1]
+    )
