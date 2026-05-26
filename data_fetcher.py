@@ -19,6 +19,8 @@ ACCOUNT_ID = os.getenv("OANDA_ACCOUNT_ID")
 
 BASE_URL = "https://api-fxpractice.oanda.com/v3"
 
+print("API KEY EXISTS:", bool(os.getenv("OANDA_API_KEY")))
+
 
 # ============================================================
 # Kill Zones
